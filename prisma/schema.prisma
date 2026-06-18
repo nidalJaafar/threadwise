@@ -1,0 +1,346 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+    provider = "prisma-client-js"
+    output   = "../generated/prisma"
+}
+
+datasource db {
+    provider = "sqlite"
+    // NOTE: When using mysql or sqlserver, uncomment the @db.Text annotations in model Account below
+    // Further reading:
+    // https://next-auth.js.org/adapters/prisma#create-the-prisma-schema
+    // https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#string
+    url      = env("DATABASE_URL")
+}
+
+model Client {
+    id              String        @id @default(cuid())
+    name            String
+    aliasesJson     String        @default("[]")
+    domainsJson     String        @default("[]")
+    confidence      Float         @default(1)
+    source          String        @default("seed")
+    notes           String?
+    createdAt       DateTime      @default(now())
+    updatedAt       DateTime      @updatedAt
+    emailThreads    EmailThread[]
+    domains         ClientDomain[]
+    contacts        ClientContact[]
+    domainRules     DomainRule[]
+
+    @@index([name])
+}
+
+model ClientDomain {
+    id         String   @id @default(cuid())
+    clientId   String
+    domain     String
+    label      String?
+    confidence Float    @default(1)
+    source     String   @default("manual")
+    createdAt  DateTime @default(now())
+    updatedAt  DateTime @updatedAt
+    client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+    @@unique([clientId, domain])
+    @@index([domain])
+}
+
+model ClientContact {
+    id         String   @id @default(cuid())
+    clientId   String
+    name       String?
+    email      String
+    domain     String
+    role       String?
+    confidence Float    @default(1)
+    source     String   @default("manual")
+    createdAt  DateTime @default(now())
+    updatedAt  DateTime @updatedAt
+    client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+    @@unique([clientId, email])
+    @@index([email])
+    @@index([domain])
+}
+
+model EmailThread {
+    id                   String           @id @default(cuid())
+    provider             String           @default("seed")
+    providerAccountId    String?
+    providerThreadId     String           @unique
+    gmailHistoryId       String?
+    subject              String
+    clientId             String?
+    topic                String
+    category             String
+    status               String
+    priority             String
+    waitingOn            String
+    owner                String
+    summary              String
+    timelineJson         String           @default("[]")
+    importantEntitiesJson String          @default("[]")
+    classificationSource String           @default("seed")
+    classifiedDomain     String?
+    classificationReason String?
+    userOverridden       Boolean          @default(false)
+    isIgnored            Boolean          @default(false)
+    ignoredReason        String?
+    ignoreSource         String?
+    gmailUrl             String?
+    lastMessageAt        DateTime
+    lastSyncedAt         DateTime?
+    aiProcessedAt        DateTime?
+    aiVersion            String           @default("seed-v1")
+    isArchived           Boolean          @default(false)
+    createdAt            DateTime         @default(now())
+    updatedAt            DateTime         @updatedAt
+    client               Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
+    messages             EmailMessage[]
+    domains              ThreadDomain[]
+    actions              ThreadAction[]
+    decisions            ThreadDecision[]
+    attachments          Attachment[]
+    analysis             ThreadAnalysis?
+
+    @@index([clientId])
+    @@index([isIgnored])
+    @@index([isIgnored, lastMessageAt])
+    @@index([clientId, isIgnored, lastMessageAt])
+    @@index([status])
+    @@index([classificationSource])
+    @@index([classifiedDomain])
+    @@index([lastMessageAt])
+}
+
+model ThreadDomain {
+    id        String      @id @default(cuid())
+    threadId  String
+    domain    String
+    source    String
+    createdAt DateTime    @default(now())
+    thread    EmailThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+    @@unique([threadId, domain, source])
+    @@index([domain])
+    @@index([threadId])
+    @@index([domain, threadId])
+}
+
+model DomainRule {
+    id        String   @id @default(cuid())
+    domain    String
+    role      String
+    clientId  String?
+    reason    String?
+    source    String   @default("manual")
+    enabled   Boolean  @default(true)
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    client    Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+    @@unique([domain, role])
+    @@index([domain])
+    @@index([role])
+    @@index([enabled])
+    @@index([clientId])
+}
+
+model IgnoreRule {
+    id        String   @id @default(cuid())
+    type      String
+    value     String
+    reason    String?
+    enabled   Boolean  @default(true)
+    source    String   @default("builtin")
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([enabled])
+    @@index([type, value])
+}
+
+model ThreadAnalysis {
+    id              String      @id @default(cuid())
+    threadId        String      @unique
+    summary         String
+    currentStatus   String
+    suggestedStatus String
+    risksJson       String      @default("[]")
+    entitiesJson    String      @default("[]")
+    model           String
+    promptVersion   String
+    inputHash       String
+    createdAt       DateTime    @default(now())
+    updatedAt       DateTime    @updatedAt
+    thread          EmailThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+}
+
+model EmailMessage {
+    id                String       @id @default(cuid())
+    threadId          String
+    providerMessageId String       @unique
+    messageHash       String
+    bodyHash          String
+    senderName        String
+    senderEmail       String
+    recipientJson     String       @default("[]")
+    ccJson            String       @default("[]")
+    sentAt            DateTime
+    gmailInternalDate DateTime?
+    rawBody           String
+    cleanBody         String
+    snippet           String
+    hasAttachments    Boolean      @default(false)
+    isFromUser        Boolean      @default(false)
+    cleaningStatus    String       @default("cleaned")
+    cleanedAt         DateTime?
+    createdAt         DateTime     @default(now())
+    updatedAt         DateTime     @updatedAt
+    thread            EmailThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+    attachments       Attachment[]
+
+    @@index([threadId])
+    @@index([threadId, sentAt])
+    @@index([senderEmail])
+    @@index([sentAt])
+}
+
+model ThreadAction {
+    id              String      @id @default(cuid())
+    threadId        String
+    description     String
+    owner           String
+    status          String      @default("open")
+    dueDate         DateTime?
+    sourceMessageId String?
+    sourceQuote     String?
+    createdAt       DateTime    @default(now())
+    updatedAt       DateTime    @updatedAt
+    thread          EmailThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+    @@index([threadId])
+    @@index([status])
+}
+
+model ThreadDecision {
+    id              String      @id @default(cuid())
+    threadId        String
+    decision        String
+    sourceMessageId String?
+    sourceQuote     String?
+    createdAt       DateTime    @default(now())
+    updatedAt       DateTime    @updatedAt
+    thread          EmailThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+    @@index([threadId])
+}
+
+model Attachment {
+    id                   String        @id @default(cuid())
+    threadId             String
+    messageId            String?
+    filename             String
+    mimeType             String
+    size                 Int
+    providerAttachmentId String
+    createdAt            DateTime      @default(now())
+    updatedAt            DateTime      @updatedAt
+    thread               EmailThread   @relation(fields: [threadId], references: [id], onDelete: Cascade)
+    message              EmailMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+    @@index([threadId])
+    @@index([messageId])
+}
+
+model AiJob {
+    id          String    @id @default(cuid())
+    jobType     String
+    entityType  String
+    entityId    String
+    status      String
+    inputHash   String
+    model       String?
+    promptVersion String?
+    error       String?
+    startedAt   DateTime?
+    completedAt DateTime?
+    createdAt   DateTime  @default(now())
+
+    @@index([entityType, entityId])
+    @@index([status])
+}
+
+model UserCorrection {
+    id         String   @id @default(cuid())
+    entityType String
+    entityId   String
+    fieldName  String
+    oldValue   String?
+    newValue   String
+    createdAt  DateTime @default(now())
+
+    @@index([entityType, entityId])
+}
+
+model GmailSyncState {
+    id           String   @id @default(cuid())
+    userId       String   @unique
+    email        String?
+    historyId    String?
+    lastSyncedAt DateTime?
+    lastError    String?
+    createdAt    DateTime @default(now())
+    updatedAt    DateTime @updatedAt
+    user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Necessary for Next auth
+model Account {
+    id                       String  @id @default(cuid())
+    userId                   String
+    type                     String
+    provider                 String
+    providerAccountId        String
+    refresh_token            String? // @db.Text
+    access_token             String? // @db.Text
+    expires_at               Int?
+    token_type               String?
+    scope                    String?
+    id_token                 String? // @db.Text
+    session_state            String?
+    user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    refresh_token_expires_in Int?
+
+    @@unique([provider, providerAccountId])
+}
+
+model Session {
+    id           String   @id @default(cuid())
+    sessionToken String   @unique
+    userId       String
+    expires      DateTime
+    user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+    id            String    @id @default(cuid())
+    name          String?
+    email         String?   @unique
+    emailVerified DateTime?
+    image         String?
+    accounts      Account[]
+    sessions      Session[]
+    gmailSyncState GmailSyncState?
+}
+
+model VerificationToken {
+    identifier String
+    token      String   @unique
+    expires    DateTime
+
+    @@unique([identifier, token])
+}
