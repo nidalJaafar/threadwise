@@ -130,6 +130,9 @@ export function GmailSyncControl({ status }: { status: Status }) {
     setMessage(`Auto-sync interval set to ${formatInterval(seconds)}.`);
   };
 
+  const currentError = message ?? status.lastError;
+  const shouldReconnectGoogle = Boolean(currentError && isGoogleReconnectError(currentError));
+
   const handleNewMailResult = (result: SyncResult, navigate: (href: string) => void) => {
     const latestMessage = result.changedMessages[0];
     const latestThread = result.changedThreads[0];
@@ -161,6 +164,13 @@ export function GmailSyncControl({ status }: { status: Status }) {
   const clearLocalData = api.gmail.clearLocalData.useMutation({
     onSuccess: () => {
       void signOut({ callbackUrl: "/" });
+    },
+    onError: (error) => setMessage(error.message),
+  });
+
+  const resetGoogleConnection = api.gmail.resetGoogleConnection.useMutation({
+    onSuccess: () => {
+      void signIn("google", { callbackUrl: "/" }, googleAuthParams);
     },
     onError: (error) => setMessage(error.message),
   });
@@ -207,7 +217,7 @@ export function GmailSyncControl({ status }: { status: Status }) {
         </div>
         <button
           type="button"
-          onClick={() => void signIn("google")}
+          onClick={() => void signIn("google", { callbackUrl: "/" }, googleAuthParams)}
           className="rounded-full bg-stone-100 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-white"
         >
           Connect Gmail
@@ -226,7 +236,7 @@ export function GmailSyncControl({ status }: { status: Status }) {
         <p className="mt-1 text-sm text-stone-600">
           Auto-sync {autoSyncEnabled ? "on" : "off"} · every {formatInterval(autoSyncIntervalSeconds)} · notifications {formatNotificationPermission(notificationPermission)}{lastAutoSyncAt ? ` · last auto ${lastAutoSyncAt.toLocaleTimeString()}` : ""}
         </p>
-        {(message ?? status.lastError) && <p className="mt-2 text-sm text-stone-400">{message ?? status.lastError}</p>}
+        {currentError && <p className="mt-2 text-sm text-stone-400">{currentError}</p>}
         {newMailNotice && (
           <div className="mt-3 rounded-2xl border border-emerald-400/40 bg-emerald-400/10 p-3 text-sm text-emerald-100">
             <p className="font-semibold">New email received: {newMailNotice.label}</p>
@@ -261,6 +271,16 @@ export function GmailSyncControl({ status }: { status: Status }) {
         >
           {notificationPermission === "granted" ? "Notifications: On" : notificationPermission === "denied" ? "Notifications denied" : notificationPermission === "unsupported" ? "Notifications unsupported" : "Enable notifications"}
         </button>
+        {shouldReconnectGoogle && (
+          <button
+            type="button"
+            disabled={resetGoogleConnection.isPending}
+            onClick={() => resetGoogleConnection.mutate()}
+            className="rounded-full bg-amber-200 px-4 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100"
+          >
+            {resetGoogleConnection.isPending ? "Resetting..." : "Reconnect Google"}
+          </button>
+        )}
         <button
           type="button"
           onClick={toggleAutoSync}
@@ -430,4 +450,16 @@ function formatNotificationPermission(permission: NotificationPermission | "unsu
   }
 
   return permission;
+}
+
+const googleAuthParams = {
+  access_type: "offline",
+  prompt: "consent",
+  scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly",
+};
+
+function isGoogleReconnectError(message: string) {
+  const normalized = message.toLowerCase();
+
+  return normalized.includes("expired") || normalized.includes("revoked") || normalized.includes("reconnect google") || normalized.includes("invalid_grant");
 }

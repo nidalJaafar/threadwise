@@ -27,10 +27,12 @@ export const gmailRouter = createTRPCRouter({
       ctx.db.gmailSyncState.findUnique({ where: { userId: ctx.session.user.id } }),
     ]);
 
+    const hasGmailScope = Boolean(account?.scope?.includes("https://www.googleapis.com/auth/gmail.readonly"));
+
     return {
       configured,
       signedIn: true,
-      connected: Boolean(account?.scope?.includes("https://www.googleapis.com/auth/gmail.readonly")),
+      connected: Boolean(hasGmailScope && (account?.refresh_token ?? account?.access_token)),
       email: syncState?.email ?? ctx.session.user.email ?? null,
       lastSyncedAt: syncState?.lastSyncedAt ?? null,
       lastError: syncState?.lastError ?? null,
@@ -107,6 +109,23 @@ export const gmailRouter = createTRPCRouter({
     ]);
 
     await ensureUnknownClient(ctx.db);
+
+    return { ok: true };
+  }),
+
+  resetGoogleConnection: protectedProcedure.mutation(async ({ ctx }) => {
+    await ctx.db.$transaction([
+      ctx.db.account.deleteMany({
+        where: {
+          userId: ctx.session.user.id,
+          provider: "google",
+        },
+      }),
+      ctx.db.gmailSyncState.updateMany({
+        where: { userId: ctx.session.user.id },
+        data: { lastError: null },
+      }),
+    ]);
 
     return { ok: true };
   }),

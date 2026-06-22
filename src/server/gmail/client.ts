@@ -57,9 +57,25 @@ export async function getGmailAccessToken(db: PrismaClient, userId: string) {
   const payload = (await response.json()) as GoogleTokenResponse;
 
   if (!response.ok || !payload.access_token) {
+    const message = payload.error_description ?? payload.error ?? "Failed to refresh Google access token.";
+    const isRevoked = isRevokedGoogleToken(message);
+
+    if (isRevoked) {
+      await db.account.update({
+        where: { id: account.id },
+        data: {
+          access_token: null,
+          refresh_token: null,
+          expires_at: null,
+        },
+      });
+    }
+
     throw new TRPCError({
       code: "UNAUTHORIZED",
-      message: payload.error_description ?? payload.error ?? "Failed to refresh Google access token.",
+      message: isRevoked
+        ? "Google connection expired or was revoked. Reconnect Google to continue syncing Gmail."
+        : message,
     });
   }
 
@@ -74,6 +90,12 @@ export async function getGmailAccessToken(db: PrismaClient, userId: string) {
   });
 
   return payload.access_token;
+}
+
+function isRevokedGoogleToken(message: string) {
+  const normalized = message.toLowerCase();
+
+  return normalized.includes("expired") || normalized.includes("revoked") || normalized.includes("invalid_grant");
 }
 
 export async function gmailFetch<T>(accessToken: string, path: string) {
